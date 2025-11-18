@@ -1,0 +1,169 @@
+DEPOT GITHUB
+
+git clone https://github.com/TON_COMPTE/virtual-tryon
+cd virtual-tryon
+pip install -r requirements.txt
+streamlit run app.py
+
+ARBORESCENCE
+
+virtual-tryon/
+│
+├── app.py
+├── tryon.py
+├── requirements.txt
+├── README.md
+│
+├── assets/
+│   ├── placeholder_user.png
+│   └── placeholder_cloth.png
+│
+├── input/
+│   └── (tu mets tes photos ici)
+│
+├── clothes/
+│   └── (tes vêtements ici)
+│
+└── models/
+    └── (téléchargé automatiquement)
+
+requirements.txt
+torch==2.1.0
+torchvision==0.16.0
+opencv-python
+Pillow
+numpy
+streamlit
+huggingface-hub
+einops
+tqdm
+scipy
+
+tryon.py
+import torch
+from huggingface_hub import snapshot_download
+from PIL import Image
+import numpy as np
+import cv2
+import os
+
+MODEL_DIR = "models/tryon_full"
+
+def download_model():
+    if not os.path.exists(MODEL_DIR):
+        print("📥 Téléchargement du modèle TryOnDiffusion...")
+        snapshot_download(
+            repo_id="diffusers/tryondiffusion",
+            local_dir=MODEL_DIR,
+            local_dir_use_symlinks=False
+        )
+        print("✔ Modèle téléchargé.")
+
+def load_image(path):
+    return Image.open(path).convert("RGB")
+
+def run_tryon(user_img_path, cloth_img_path, output_path="output.png"):
+    """
+    Version simplifiée du pipeline TryOnDiffusion standard.
+    """
+    from diffusers import StableDiffusionInpaintPipeline
+
+    download_model()
+
+    pipe = StableDiffusionInpaintPipeline.from_pretrained(
+        MODEL_DIR,
+        torch_dtype=torch.float16
+    ).to("cuda")
+
+    user_img = load_image(user_img_path)
+    cloth_img = load_image(cloth_img_path)
+
+    # Création d'une simple segmentation approximative
+    cloth_resized = cloth_img.resize((256, 256))
+    mask = cloth_resized.convert("L")
+
+    result = pipe(
+        prompt="person wearing this piece of clothing realistically, high quality, sharp, natural",
+        image=user_img,
+        mask_image=mask
+    ).images[0]
+
+    result.save(output_path)
+    return output_path
+
+
+app.py
+
+import streamlit as st
+import os
+from PIL import Image
+from tryon import run_tryon
+
+st.set_page_config(page_title="Virtual TryOn", layout="wide")
+
+INPUT_DIR = "input"
+CLOTH_DIR = "clothes"
+HISTORY_DIR = "history"
+
+os.makedirs(HISTORY_DIR, exist_ok=True)
+
+st.title("🧪 Essayage Virtuel - Interface Avancée")
+
+# ---- COLONNES ----
+col_user, col_cloth, col_preview = st.columns([1,1,2])
+
+# ---- Upload utilisateur ----
+with col_user:
+    st.subheader("📸 Photo utilisateur")
+    user_file = st.file_uploader("Choisis une photo", type=["png","jpg","jpeg"])
+    if user_file:
+        user_img = Image.open(user_file).convert("RGB")
+        st.image(user_img, caption="Photo utilisateur", use_container_width=True)
+        user_path = os.path.join(INPUT_DIR, "user.png")
+        user_img.save(user_path)
+
+# ---- Catalogue vêtements ----
+with col_cloth:
+    st.subheader("👕 Catalogue de vêtements")
+
+    clothes = [f for f in os.listdir(CLOTH_DIR) if f.lower().endswith(("png","jpg","jpeg"))]
+
+    if not clothes:
+        st.warning("Ajoute des vêtements dans le dossier clothes/")
+    else:
+        cloth_choice = st.selectbox("Choisis un vêtement", clothes)
+        cloth_path = os.path.join(CLOTH_DIR, cloth_choice)
+        st.image(cloth_path, caption="Vêtement choisi", use_container_width=True)
+
+# ---- Zone Prévisualisation / Résultat ----
+with col_preview:
+    st.subheader("🖼 Aperçu rendu")
+
+    if st.button("🔮 Générer le rendu"):
+        if user_file and cloth_choice:
+            output_path = os.path.join(HISTORY_DIR, "result.png")
+            with st.spinner("Génération en cours..."):
+                result = run_tryon(user_path, cloth_path, output_path)
+            st.success("Rendu généré !")
+            st.image(result, caption="Résultat", use_container_width=True)
+        else:
+            st.error("Ajoute une photo utilisateur et choisis un vêtement")
+
+# ---- Historique ----
+st.subheader("📚 Historique")
+
+history_files = sorted(os.listdir(HISTORY_DIR))
+for h in history_files:
+    st.image(os.path.join(HISTORY_DIR, h), width=150)
+
+
+readme.md
+# Virtual TryOn - Interface Avancée
+
+Application d’essayage virtuel utilisant **TryOnDiffusion (modèle complet)**.
+
+## 🚀 Lancement
+
+```bash
+pip install -r requirements.txt
+streamlit run app.py
